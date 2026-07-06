@@ -34,7 +34,7 @@ interface Particle {
   alpha: number;
   life: number;
   maxLife: number;
-  layer: number; // 0=inner, 1=mid, 2=outer
+  layer: number;
 }
 
 const STATE_COLORS: Record<NebulaState, { r: number; g: number; b: number; label: string }> = {
@@ -63,6 +63,12 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
   const pulseRef = useRef(0);
   const prevStateRef = useRef<NebulaState>("idle");
 
+  // Touch/interaction state
+  const touchRef = useRef<{ x: number; y: number; active: boolean; pressure: number }>({
+    x: 0, y: 0, active: false, pressure: 0,
+  });
+  const breathRef = useRef({ scale: 1, targetScale: 1, velocity: 0 });
+
   const createParticle = useCallback((cx: number, cy: number, layer: number): Particle => {
     const angle = Math.random() * Math.PI * 2;
     const baseDistance = layer === 0 ? 30 : layer === 1 ? 80 : 140;
@@ -83,10 +89,88 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
     };
   }, [size]);
 
+  // Handle touch/mouse interactions
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const getPos = (e: MouseEvent | Touch) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / (window.devicePixelRatio || 1)) / rect.width,
+        y: (e.clientY - rect.top) * (canvas.height / (window.devicePixelRatio || 1)) / rect.height,
+      };
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      const pos = getPos(e);
+      touchRef.current = { x: pos.x, y: pos.y, active: true, pressure: 1 };
+      breathRef.current.targetScale = 1.15;
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (touchRef.current.active) {
+        const pos = getPos(e);
+        touchRef.current.x = pos.x;
+        touchRef.current.y = pos.y;
+      }
+    };
+
+    const onMouseUp = () => {
+      touchRef.current.active = false;
+      touchRef.current.pressure = 0;
+      breathRef.current.targetScale = 1;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const pos = getPos(touch);
+      touchRef.current = { x: pos.x, y: pos.y, active: true, pressure: (touch as any).force || 1 };
+      breathRef.current.targetScale = 1.2;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        const pos = getPos(touch);
+        touchRef.current.x = pos.x;
+        touchRef.current.y = pos.y;
+        touchRef.current.pressure = (touch as any).force || 1;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      touchRef.current.active = false;
+      touchRef.current.pressure = 0;
+      breathRef.current.targetScale = 1;
+    };
+
+    canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("mousemove", onMouseMove);
+    canvas.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("mouseleave", onMouseUp);
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+    canvas.addEventListener("touchend", onTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("mousedown", onMouseDown);
+      canvas.removeEventListener("mousemove", onMouseMove);
+      canvas.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("mouseleave", onMouseUp);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove", onTouchMove);
+      canvas.removeEventListener("touchend", onTouchEnd);
+    };
+  }, []);
+
   useEffect(() => {
     if (state !== prevStateRef.current) {
       targetColorRef.current = { ...STATE_COLORS[state] };
-      pulseRef.current = 2.0; // Strong pulse on state change
+      pulseRef.current = 2.0;
       prevStateRef.current = state;
     }
   }, [state]);
@@ -105,9 +189,9 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
     const cx = size / 2;
     const cy = size / 2;
 
-    // Initialize particles in 3 layers
+    // Initialize particles
     particlesRef.current = [];
-    const counts = [200, 250, 200]; // inner, mid, outer
+    const counts = [200, 250, 200];
     for (let layer = 0; layer < 3; layer++) {
       for (let i = 0; i < counts[layer]; i++) {
         particlesRef.current.push(createParticle(cx, cy, layer));
@@ -126,30 +210,49 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
       curr.g += (target.g - curr.g) * lerpSpeed;
       curr.b += (target.b - curr.b) * lerpSpeed;
 
+      // Breathing physics (spring-based)
+      const breath = breathRef.current;
+      const springForce = (breath.targetScale - breath.scale) * 0.08;
+      breath.velocity += springForce;
+      breath.velocity *= 0.85; // damping
+      breath.scale += breath.velocity;
+
+      // Natural breathing when not touched
+      const naturalBreath = Math.sin(time * 1.2) * 0.04 + 1.0;
+      const effectiveScale = touchRef.current.active
+        ? breath.scale
+        : naturalBreath;
+
       // Decay pulse
       pulseRef.current *= 0.985;
       if (pulseRef.current < 0.005) pulseRef.current = 0;
       const pulse = pulseRef.current;
 
       const { r, g, b } = curr;
+      const touchActive = touchRef.current.active;
+      const touchX = touchRef.current.x;
+      const touchY = touchRef.current.y;
 
-      // Clear with deep space fade
-      ctx.fillStyle = `rgba(3, 3, 12, ${0.12 + pulse * 0.03})`;
-      ctx.fillRect(0, 0, size, size);
+      // Clear with TRANSPARENT background (no separate bg)
+      ctx.clearRect(0, 0, size, size);
 
-      // Background space dust (very subtle)
-      const dustAlpha = 0.015 + Math.sin(time * 0.5) * 0.005;
+      // Very subtle space dust (transparent)
+      const dustAlpha = 0.012 + Math.sin(time * 0.5) * 0.004;
       const dustGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.48);
       dustGrad.addColorStop(0, `rgba(${r * 0.3}, ${g * 0.3}, ${b * 0.3}, ${dustAlpha})`);
       dustGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = dustGrad;
       ctx.fillRect(0, 0, size, size);
 
-      // === CORE RENDERING ===
-      const breathe = Math.sin(time * 1.2) * 0.12 + 0.88;
-      const coreRadius = (35 + pulse * 25) * breathe;
+      // === CORE RENDERING with breathing scale ===
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(effectiveScale, effectiveScale);
+      ctx.translate(-cx, -cy);
 
-      // Layer 1: Deep outer glow
+      const coreRadius = (35 + pulse * 25);
+
+      // Outer glow
       const outerGlow = ctx.createRadialGradient(cx, cy, coreRadius * 2, cx, cy, size * 0.42);
       outerGlow.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${0.06 + pulse * 0.04})`);
       outerGlow.addColorStop(0.5, `rgba(${r * 0.5}, ${g * 0.5}, ${b * 0.5}, 0.02)`);
@@ -159,7 +262,7 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
       ctx.arc(cx, cy, size * 0.42, 0, Math.PI * 2);
       ctx.fill();
 
-      // Layer 2: Mid glow
+      // Mid glow
       const midGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius * 3.5);
       midGlow.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${0.4 + pulse * 0.2})`);
       midGlow.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${0.15})`);
@@ -170,30 +273,46 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
       ctx.arc(cx, cy, coreRadius * 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Layer 3: Bright inner core
+      // Bright inner core — pulses more when touched
+      const touchBoost = touchActive ? 0.15 : 0;
       const innerGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreRadius * 1.2);
-      innerGlow.addColorStop(0, `rgba(255, 255, 255, ${0.95})`);
-      innerGlow.addColorStop(0.2, `rgba(${Math.min(255, r + 80)}, ${Math.min(255, g + 80)}, ${Math.min(255, b + 80)}, 0.8)`);
-      innerGlow.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, 0.3)`);
+      innerGlow.addColorStop(0, `rgba(255, 255, 255, ${0.95 + touchBoost})`);
+      innerGlow.addColorStop(0.2, `rgba(${Math.min(255, r + 80)}, ${Math.min(255, g + 80)}, ${Math.min(255, b + 80)}, ${0.8 + touchBoost})`);
+      innerGlow.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, ${0.3 + touchBoost * 0.5})`);
       innerGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
       ctx.fillStyle = innerGlow;
       ctx.beginPath();
       ctx.arc(cx, cy, coreRadius * 1.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // === PARTICLES ===
+      ctx.restore();
+
+      // === PARTICLES with touch attraction ===
       const particles = particlesRef.current;
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.life++;
 
-        // Orbital motion with turbulence
+        // Orbital motion
         const turbulence = p.layer === 0 ? 0.5 : p.layer === 1 ? 1.0 : 1.5;
         p.angle += p.speed * (1 + pulse * 1.5);
         const wobbleX = Math.sin(time * 1.5 + i * 0.05) * turbulence * 3;
         const wobbleY = Math.cos(time * 1.8 + i * 0.07) * turbulence * 3;
-        const targetX = cx + Math.cos(p.angle) * p.distance + wobbleX;
-        const targetY = cy + Math.sin(p.angle) * p.distance + wobbleY;
+        let targetX = cx + Math.cos(p.angle) * p.distance * effectiveScale + wobbleX;
+        let targetY = cy + Math.sin(p.angle) * p.distance * effectiveScale + wobbleY;
+
+        // Touch attraction — particles gravitate toward finger
+        if (touchActive) {
+          const dx = touchX - p.x;
+          const dy = touchY - p.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const attractRadius = size * 0.35;
+          if (dist < attractRadius) {
+            const force = (1 - dist / attractRadius) * 0.3 * touchRef.current.pressure;
+            targetX += dx * force;
+            targetY += dy * force;
+          }
+        }
 
         p.x += (targetX - p.x) * 0.06;
         p.y += (targetY - p.y) * 0.06;
@@ -201,12 +320,12 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
         // Life-based alpha
         const lifeRatio = p.life / p.maxLife;
         const fadeAlpha = lifeRatio > 0.8 ? (1 - lifeRatio) * 5 : Math.min(1, lifeRatio * 4);
-        
+
         // Distance-based brightness
         const dist = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
         const maxDist = size * 0.42;
         const distFactor = Math.max(0, 1 - dist / maxDist);
-        
+
         const finalAlpha = p.alpha * fadeAlpha * (0.5 + pulse * 0.5) * (0.3 + distFactor * 0.7);
 
         if (finalAlpha < 0.01) {
@@ -234,12 +353,42 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
         }
       }
 
+      // === TOUCH RIPPLE EFFECT ===
+      if (touchActive) {
+        const rippleRadius = 30 + Math.sin(time * 4) * 10;
+        const rippleGrad = ctx.createRadialGradient(touchX, touchY, 0, touchX, touchY, rippleRadius);
+        rippleGrad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.3)`);
+        rippleGrad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.1)`);
+        rippleGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = rippleGrad;
+        ctx.beginPath();
+        ctx.arc(touchX, touchY, rippleRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Connection lines from touch point to nearby particles
+        for (let i = 0; i < particles.length; i += 3) {
+          const p = particles[i];
+          const dx = touchX - p.x;
+          const dy = touchY - p.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 80) {
+            const lineAlpha = (1 - d / 80) * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(touchX, touchY);
+            ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${lineAlpha})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+      }
+
       // === ENERGY RAYS ===
       const numRays = 8;
       for (let i = 0; i < numRays; i++) {
         const rayAngle = (Math.PI * 2 / numRays) * i + time * 0.15;
         const rayPulse = Math.sin(time * 2.5 + i * 0.8) * 0.5 + 0.5;
-        const rayLength = (50 + rayPulse * 40) * (1 + pulse * 0.8);
+        const rayLength = (50 + rayPulse * 40) * (1 + pulse * 0.8) * effectiveScale;
         const rayAlpha = (0.06 + rayPulse * 0.06) * (1 + pulse * 0.5);
 
         const grad = ctx.createLinearGradient(
@@ -267,13 +416,13 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
         ctx.translate(cx, cy);
         ctx.rotate(time * 2);
         ctx.beginPath();
-        ctx.arc(0, 0, coreRadius * 3, 0, Math.PI * 0.8);
+        ctx.arc(0, 0, coreRadius * 3 * effectiveScale, 0, Math.PI * 0.8);
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
         ctx.lineWidth = 2.5;
         ctx.lineCap = "round";
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(0, 0, coreRadius * 3, Math.PI, Math.PI * 1.6);
+        ctx.arc(0, 0, coreRadius * 3 * effectiveScale, Math.PI, Math.PI * 1.6);
         ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
@@ -304,14 +453,13 @@ export default function CosmicNebula({ state = "idle", size = 500, label }: Cosm
   const displayLabel = label || STATE_COLORS[state]?.label || "ADAM";
 
   return (
-    <div className="relative flex flex-col items-center justify-center">
+    <div className="relative flex flex-col items-center justify-center select-none touch-none">
       <canvas
         ref={canvasRef}
-        style={{ width: size, height: size }}
-        className="rounded-full"
+        style={{ width: size, height: size, cursor: "pointer" }}
       />
       {/* State label */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-center">
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-center">
         <span
           className="text-[10px] font-mono uppercase tracking-[0.3em] opacity-80 transition-colors duration-700"
           style={{

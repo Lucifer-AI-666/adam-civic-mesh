@@ -35,3 +35,7 @@
 - [x] Frontend: riprodurre audio Gemini invece di speechSynthesis
 - [x] Test integration per generateSpeech() e chat.speak con verifica audio valido (224KB PCM generato)
 - [x] Feedback UI quando TTS non disponibile (fallback graceful)
+- [x] Nebulosa interattiva al touchscreen: reagisce al tocco come se respirasse
+- [x] Particelle si muovono verso il punto di tocco/click
+- [x] Effetto espansione/contrazione con il tocco (breathing effect)
+- [x] Sfondo nebulosa unificato con il resto della dashboard (no sfondo separato)
