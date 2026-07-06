@@ -1,6 +1,6 @@
 import { eq, desc, sql, and, gte, lte, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, civicNodes, conversations, messages, escalations, knowledgeBase, crawlLogs } from "../drizzle/schema";
+import { InsertUser, users, civicNodes, conversations, messages, escalations, knowledgeBase, crawlLogs, systemSettings } from "../drizzle/schema";
 import type { InsertCivicNode, InsertConversation, InsertMessage, InsertEscalation, InsertKnowledgeEntry, InsertCrawlLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -295,4 +295,32 @@ export async function getDailyConversationCounts(days = 30) {
     console.warn("[Analytics] getDailyConversationCounts failed:", error);
     return [];
   }
+}
+
+// ============ SYSTEM SETTINGS ============
+
+export async function getSetting(key: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(systemSettings).where(eq(systemSettings.key, key)).limit(1);
+  return result.length > 0 ? result[0].value : null;
+}
+
+export async function getAllSettings() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(systemSettings).orderBy(systemSettings.key);
+}
+
+export async function upsertSetting(key: string, value: string, description?: string, updatedBy?: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(systemSettings).values({ key, value, description, updatedBy })
+    .onDuplicateKeyUpdate({ set: { value, description, updatedBy } });
+}
+
+export async function deleteSetting(key: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(systemSettings).where(eq(systemSettings.key, key));
 }

@@ -133,3 +133,18 @@ export const crawlLogs = mysqlTable("crawl_logs", {
 
 export type CrawlLog = typeof crawlLogs.$inferSelect;
 export type InsertCrawlLog = typeof crawlLogs.$inferInsert;
+
+/**
+ * System settings - configurazione ADAM (prompt, parametri)
+ */
+export const systemSettings = mysqlTable("system_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  value: text("value").notNull(),
+  description: varchar("description", { length: 500 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedBy: int("updatedBy"),
+});
+
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type InsertSystemSetting = typeof systemSettings.$inferInsert;

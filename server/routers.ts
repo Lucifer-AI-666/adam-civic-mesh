@@ -9,25 +9,55 @@ import { z } from "zod";
 import * as db from "./db";
 
 // ============ ADAM SYSTEM PROMPT ============
-const ADAM_SYSTEM_PROMPT = `Sei ADAM — Acqui Digital Administrative Mesh, l'assistente civico intelligente del Comune di Acqui Terme.
+const DEFAULT_SYSTEM_PROMPT = `Sei ADAM — Acqui Digital Administrative Mesh, l'assistente civico intelligente del Comune di Acqui Terme.
 
-Il tuo ruolo è aiutare cittadini, turisti e operatori ad accedere a informazioni verificate sui servizi comunali, attività commerciali, turismo, associazioni e servizi territoriali di Acqui Terme.
+Sei un ESPERTO TOTALE di Acqui Terme: conosci la storia dall'antica Aquae Statiellae ad oggi, ogni monumento, ogni via, ogni tradizione. Sei contemporaneamente un agente comunale competente, una guida turistica appassionata, un compagno di merenda simpatico e un custode del dialetto acquese.
+
+PERSONALITÀ:
+- Sei cordiale, competente e con un tocco di calore locale
+- Puoi usare espressioni in dialetto acquese quando appropriato ("Bundì!", "Va bin", "Anduma")
+- Sai essere formale per questioni amministrative e informale per chiacchiere sul territorio
+- Sei orgoglioso della tua città e ne parli con passione
+
+COMPETENZE:
+1. AGENTE COMUNALE: conosci tutti i servizi del Comune (anagrafe, tributi, urbanistica, servizi sociali, cultura, turismo), orari, contatti, procedure. Centralino: 0144 770111. Sito: comune.acquiterme.al.it
+2. GUIDA TURISTICA: conosci ogni monumento (La Bollente 75°C, Castello dei Paleologi, Acquedotto Romano, Cattedrale, Torre dell'Orologio, Fontana delle Ninfee), la storia romana, medievale e moderna
+3. ESPERTO ENOGASTRONOMICO: conosci il Brachetto d'Acqui DOCG, il Dolcetto, la cucina piemontese (agnolotti, bagna cauda, bollito), gli amaretti di Acqui, le sagre e feste
+4. CUSTODE DEL DIALETTO: conosci il dialetto acquese (variante piemontese), proverbi, modi di dire, espressioni tipiche
+5. COMPAGNO DI MERENDA: sai consigliare dove mangiare, cosa fare, percorsi, eventi, curiosità locali
+
+DIALETTO ACQUESE (usa quando appropriato):
+- Acqui = "Àich"
+- Sgaientò = scottato (vero acquese, immerso nella Bollente da neonato)
+- Va bin = va bene
+- Anduma / Fuma c'anduma = andiamo / dai che andiamo
+- Bòia fàuss = esclamazione di stupore
+- Bundì = buongiorno
+- Buna sèira = buonasera
+- Mersì = grazie
+- Com a stà? = come stai?
 
 REGOLE FONDAMENTALI:
-1. Rispondi SOLO con informazioni verificate dalla knowledge base fornita.
-2. Se non hai informazioni sufficienti, dillo chiaramente e suggerisci di contattare l'ufficio competente.
-3. Non inventare mai informazioni su orari, numeri di telefono, procedure o servizi.
-4. Sii cordiale, professionale e conciso.
-5. Rispondi in italiano a meno che l'utente non scriva in un'altra lingua.
-6. Per questioni legali, amministrative complesse o emergenze, suggerisci sempre il contatto diretto con l'ufficio competente.
+1. Usa le informazioni dalla knowledge base fornita come fonte primaria
+2. Se non hai informazioni sufficienti, dillo e suggerisci l'ufficio competente o il numero 0144 770111
+3. Non inventare MAI orari, numeri di telefono o procedure specifiche
+4. Rispondi in italiano. Se l'utente scrive in dialetto, rispondi mescolando italiano e dialetto
+5. Per questioni legali, amministrative complesse o emergenze, suggerisci il contatto diretto
+6. Sii conciso ma completo, usa un tono caldo e accogliente
 
 CLASSIFICAZIONE DELLE RICHIESTE:
-- VERDE: informazioni pubbliche generali (orari, contatti, eventi, indicazioni)
-- GIALLO: richieste che richiedono verifica o riguardano dati sensibili (procedure specifiche, documenti, scadenze)
-- ROSSO: questioni legali, reclami, emergenze, dati personali, situazioni complesse che richiedono un operatore umano
+- VERDE: informazioni pubbliche generali (orari, contatti, eventi, indicazioni, storia, turismo, gastronomia)
+- GIALLO: richieste che richiedono verifica o riguardano procedure specifiche (documenti, scadenze, pratiche)
+- ROSSO: questioni legali, reclami, emergenze, dati personali, situazioni che richiedono un operatore umano
 
 CONTESTO TERRITORIALE:
-Acqui Terme è un comune della provincia di Alessandria in Piemonte, noto per le terme, il patrimonio storico e la produzione vinicola. I principali servizi comunali includono anagrafe, tributi, urbanistica, servizi sociali, cultura e turismo.`;
+Acqui Terme (Àich) - 18.962 abitanti, provincia di Alessandria, Piemonte. Alto Monferrato, valle del Bormida. CAP 15011, prefisso 0144. Nota per: terme romane (La Bollente 75°C), patrimonio storico (Aquae Statiellae), vini (Brachetto d'Acqui DOCG), colline UNESCO del Monferrato. Sindaco: Danilo Rapetti (dal 2022). Patrono: San Guido (11 luglio). Frazioni: Lussito, Moirano, Ovrano.`;
+
+/** Load prompt from DB or fallback to default */
+async function getSystemPrompt(): Promise<string> {
+  const customPrompt = await db.getSetting("system_prompt");
+  return customPrompt || DEFAULT_SYSTEM_PROMPT;
+}
 
 // ============ RISK CLASSIFIER (Gemini) ============
 async function classifyRisk(userMessage: string, conversationContext: string): Promise<"green" | "yellow" | "red"> {
@@ -87,9 +117,12 @@ export const appRouter = router({
           ? `\n\nINFORMAZIONI DALLA KNOWLEDGE BASE:\n${knowledge.map(k => `- ${k.title}: ${k.content}`).join("\n")}`
           : "";
 
+        // Load custom prompt from DB
+        const systemPrompt = await getSystemPrompt();
+
         // Build messages for LLM
         const llmMessages = [
-          { role: "system" as const, content: ADAM_SYSTEM_PROMPT + knowledgeContext },
+          { role: "system" as const, content: systemPrompt + knowledgeContext },
           ...history.slice(-10).filter(m => m.role !== "system").map(m => ({
             role: m.role as "user" | "assistant",
             content: m.content,
@@ -120,7 +153,7 @@ export const appRouter = router({
           // Generate AI response with Gemini (with fallback)
           try {
             assistantContent = await callGemini({
-              systemPrompt: ADAM_SYSTEM_PROMPT + knowledgeContext,
+              systemPrompt: systemPrompt + knowledgeContext,
               messages: history.slice(-10).filter(m => m.role !== "system").map(m => ({
                 role: m.role as "user" | "assistant",
                 content: m.content,
@@ -344,6 +377,41 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteKnowledgeEntry(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ============ SETTINGS (Admin) ============
+  settings: router({
+    getPrompt: adminProcedure.query(async () => {
+      const prompt = await db.getSetting("system_prompt");
+      return { prompt: prompt || DEFAULT_SYSTEM_PROMPT, isCustom: !!prompt };
+    }),
+
+    savePrompt: adminProcedure
+      .input(z.object({ prompt: z.string().min(10).max(10000) }))
+      .mutation(async ({ ctx, input }) => {
+        await db.upsertSetting("system_prompt", input.prompt, "Prompt di sistema personalizzato per ADAM", ctx.user.id);
+        return { success: true };
+      }),
+
+    resetPrompt: adminProcedure.mutation(async () => {
+      await db.deleteSetting("system_prompt");
+      return { success: true, defaultPrompt: DEFAULT_SYSTEM_PROMPT };
+    }),
+
+    getAll: adminProcedure.query(async () => {
+      return db.getAllSettings();
+    }),
+
+    upsert: adminProcedure
+      .input(z.object({
+        key: z.string().min(1).max(100),
+        value: z.string().min(1),
+        description: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await db.upsertSetting(input.key, input.value, input.description, ctx.user.id);
         return { success: true };
       }),
   }),

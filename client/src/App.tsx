@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import Escalations from "./pages/Escalations";
 import AdminNodes from "./pages/AdminNodes";
 import AdminKnowledge from "./pages/AdminKnowledge";
+import AdminSettings from "./pages/AdminSettings";
 
 function Router() {
   return (
@@ -25,6 +26,7 @@ function Router() {
       <Route path={"/escalations"} component={Escalations} />
       <Route path={"/admin/nodes"} component={AdminNodes} />
       <Route path={"/admin/knowledge"} component={AdminKnowledge} />
+      <Route path={"/admin/settings"} component={AdminSettings} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

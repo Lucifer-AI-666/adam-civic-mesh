@@ -308,6 +308,7 @@ export default function Home() {
             <CmdBtn label="Escalation" onClick={() => window.location.href = "/escalations"} />
             <CmdBtn label="Analytics" onClick={() => window.location.href = "/dashboard"} />
             <CmdBtn label="Knowledge" onClick={() => window.location.href = "/admin/knowledge"} />
+            <CmdBtn label="Settings" onClick={() => window.location.href = "/admin/settings"} />
           </div>
 
           {/* Color legend */}

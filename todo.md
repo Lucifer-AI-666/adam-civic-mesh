@@ -39,3 +39,16 @@
 - [x] Particelle si muovono verso il punto di tocco/click
 - [x] Effetto espansione/contrazione con il tocco (breathing effect)
 - [x] Sfondo nebulosa unificato con il resto della dashboard (no sfondo separato)
+- [x] Pannello admin per modificare il prompt di sistema di ADAM dall'interfaccia
+- [x] Interfaccia facile per aggiungere conoscenze alla knowledge base
+- [x] Salvataggio prompt personalizzato nel database
+- [x] Knowledge base completa: storia di Acqui Terme e Acqui Statiellae (20 voci inserite)
+- [x] Knowledge base: turismo (terme, monumenti, percorsi, eventi)
+- [x] Knowledge base: commercio locale e attività
+- [x] Knowledge base: servizi comunali completi
+- [x] Knowledge base: gastronomia e vini del territorio
+- [x] Knowledge base: dialetto acquese (espressioni, modi di dire, proverbi)
+- [x] Knowledge base: tradizioni e cultura locale
+- [x] Aggiornare il prompt per rendere ADAM esperto totale del territorio (agente + guida + compagno + dialetto)
+- [x] Popolare la knowledge base con attività commerciali locali verificate (ristorazione, ospitalità, negozi) - 3 voci
+- [x] Espandere la knowledge base dei servizi comunali con schede per ufficio/procedura dettagliate - 7 voci
