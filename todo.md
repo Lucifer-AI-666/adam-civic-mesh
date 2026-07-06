@@ -1,0 +1,24 @@
+# ADAM — Project TODO
+
+- [x] Database schema: nodi civici, conversazioni, messaggi, escalation, knowledge base
+- [x] Tema dark mode con accenti ciano/verde coerente con Diboraculum Hub
+- [x] Chat AI civica con LLM integrato e prompt di sistema per Acqui Terme
+- [x] Classificatore automatico richieste verde/giallo/rosso con badge visivo
+- [x] Registro nodi civici con CRUD completo (uffici, commercio, turismo, associazioni)
+- [x] Mappa interattiva nodi civici geolocalizzati con filtri per categoria
+- [x] Sistema escalation: coda operatore, stato, notifica email
+- [x] Dashboard analytics: conversazioni/giorno, distribuzione rischio, nodi consultati, trend
+- [x] Tre ruoli utente: cittadino, operatore, admin
+- [x] Storico conversazioni per utente con riapertura ed esportazione
+- [x] Notifiche email automatiche all'operatore per escalation rosse
+- [x] Job periodico crawling sito Comune Acqui Terme per aggiornare knowledge base
+- [x] Pannello operatore per gestione escalation
+- [x] Pannello admin per gestione nodi e analytics
+- [x] Test vitest per API principali (11 test passati)
+- [x] Landing page con presentazione feature
+- [x] Navbar responsive con navigazione per ruolo
+- [x] Knowledge base admin CRUD
+- [x] Edit/Update completo nodi civici con dialog di modifica
+- [x] Export conversazioni in formato Markdown
+- [x] Job schedulato crawl registrato (adam-crawl-acqui-terme, ogni giorno alle 06:00 UTC)
+- [x] Login ultra-rapido: un click per entrare, zero form, zero attesa

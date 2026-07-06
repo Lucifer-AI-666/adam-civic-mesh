@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, count } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, civicNodes, conversations, messages, escalations, knowledgeBase, crawlLogs } from "../drizzle/schema";
+import type { InsertCivicNode, InsertConversation, InsertMessage, InsertEscalation, InsertKnowledgeEntry, InsertCrawlLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -18,26 +18,20 @@ export async function getDb() {
   return _db;
 }
 
+// ============ USERS ============
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
-
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  if (!db) { console.warn("[Database] Cannot upsert user: database not available"); return; }
 
   try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
+    const values: InsertUser = { openId: user.openId };
     const updateSet: Record<string, unknown> = {};
-
     const textFields = ["name", "email", "loginMethod"] as const;
     type TextField = (typeof textFields)[number];
-
     const assignNullable = (field: TextField) => {
       const value = user[field];
       if (value === undefined) return;
@@ -45,32 +39,13 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values[field] = normalized;
       updateSet[field] = normalized;
     };
-
     textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
+    if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
+    if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
+    else if (user.openId === ENV.ownerOpenId) { values.role = 'admin'; updateSet.role = 'admin'; }
+    if (!values.lastSignedIn) { values.lastSignedIn = new Date(); }
+    if (Object.keys(updateSet).length === 0) { updateSet.lastSignedIn = new Date(); }
+    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -79,14 +54,209 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ============ CIVIC NODES ============
+
+export async function getAllNodes(type?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  if (type) {
+    return db.select().from(civicNodes).where(eq(civicNodes.type, type as any));
+  }
+  return db.select().from(civicNodes).orderBy(desc(civicNodes.updatedAt));
+}
+
+export async function getNodeById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(civicNodes).where(eq(civicNodes.id, id)).limit(1);
+  return result[0];
+}
+
+export async function createNode(node: InsertCivicNode) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(civicNodes).values(node);
+  return result[0].insertId;
+}
+
+export async function updateNode(id: number, data: Partial<InsertCivicNode>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(civicNodes).set(data).where(eq(civicNodes.id, id));
+}
+
+export async function deleteNode(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(civicNodes).where(eq(civicNodes.id, id));
+}
+
+// ============ CONVERSATIONS ============
+
+export async function createConversation(conv: InsertConversation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(conversations).values(conv);
+  return result[0].insertId;
+}
+
+export async function getConversationById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+  return result[0];
+}
+
+export async function getUserConversations(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(conversations).where(eq(conversations.userId, userId)).orderBy(desc(conversations.updatedAt));
+}
+
+export async function updateConversation(id: number, data: Partial<InsertConversation>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(conversations).set(data).where(eq(conversations.id, id));
+}
+
+// ============ MESSAGES ============
+
+export async function addMessage(msg: InsertMessage) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(messages).values(msg);
+  return result[0].insertId;
+}
+
+export async function getConversationMessages(conversationId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(messages.createdAt);
+}
+
+// ============ ESCALATIONS ============
+
+export async function createEscalation(esc: InsertEscalation) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(escalations).values(esc);
+  return result[0].insertId;
+}
+
+export async function getEscalations(status?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  if (status) {
+    return db.select().from(escalations).where(eq(escalations.status, status as any)).orderBy(desc(escalations.createdAt));
+  }
+  return db.select().from(escalations).orderBy(desc(escalations.createdAt));
+}
+
+export async function getEscalationsByOperator(operatorId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(escalations).where(eq(escalations.assignedOperatorId, operatorId)).orderBy(desc(escalations.createdAt));
+}
+
+export async function updateEscalation(id: number, data: Partial<InsertEscalation>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(escalations).set(data).where(eq(escalations.id, id));
+}
+
+// ============ KNOWLEDGE BASE ============
+
+export async function searchKnowledge(query: string, limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(knowledgeBase)
+    .where(eq(knowledgeBase.verified, true))
+    .orderBy(desc(knowledgeBase.updatedAt))
+    .limit(limit);
+}
+
+export async function getAllKnowledge() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(knowledgeBase).orderBy(desc(knowledgeBase.updatedAt));
+}
+
+export async function addKnowledgeEntry(entry: InsertKnowledgeEntry) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(knowledgeBase).values(entry);
+  return result[0].insertId;
+}
+
+export async function updateKnowledgeEntry(id: number, data: Partial<InsertKnowledgeEntry>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(knowledgeBase).set(data).where(eq(knowledgeBase.id, id));
+}
+
+export async function deleteKnowledgeEntry(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(knowledgeBase).where(eq(knowledgeBase.id, id));
+}
+
+// ============ CRAWL LOGS ============
+
+export async function addCrawlLog(log: InsertCrawlLog) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(crawlLogs).values(log);
+}
+
+export async function getRecentCrawlLogs(limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(crawlLogs).orderBy(desc(crawlLogs.createdAt)).limit(limit);
+}
+
+// ============ ANALYTICS ============
+
+export async function getConversationStats(startDate?: Date, endDate?: Date) {
+  const db = await getDb();
+  if (!db) return { total: 0, green: 0, yellow: 0, red: 0 };
+  
+  let conditions = [];
+  if (startDate) conditions.push(gte(conversations.createdAt, startDate));
+  if (endDate) conditions.push(lte(conversations.createdAt, endDate));
+  
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  
+  const total = await db.select({ count: count() }).from(conversations).where(whereClause);
+  const green = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "green"), whereClause));
+  const yellow = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "yellow"), whereClause));
+  const red = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "red"), whereClause));
+  
+  return {
+    total: total[0]?.count ?? 0,
+    green: green[0]?.count ?? 0,
+    yellow: yellow[0]?.count ?? 0,
+    red: red[0]?.count ?? 0,
+  };
+}
+
+export async function getDailyConversationCounts(days = 30) {
+  const db = await getDb();
+  if (!db) return [];
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  
+  const result = await db.select({
+    date: sql<string>`DATE(${conversations.createdAt})`,
+    count: count(),
+  }).from(conversations)
+    .where(gte(conversations.createdAt, startDate))
+    .groupBy(sql`DATE(${conversations.createdAt})`)
+    .orderBy(sql`DATE(${conversations.createdAt})`);
+  
+  return result;
+}
