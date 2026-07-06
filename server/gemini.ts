@@ -123,3 +123,44 @@ CRITERI:
     return "green";
   }
 }
+
+/**
+ * Classify the response type for the nebula color spectrum.
+ * Returns a semantic type that maps to a nebula color state.
+ */
+export type ResponseType = "informative" | "empathetic" | "creative" | "navigational" | "important" | "neutral";
+
+export async function classifyResponseType(
+  assistantResponse: string,
+  userMessage: string
+): Promise<ResponseType> {
+  try {
+    const response = await callGemini({
+      systemPrompt: `Sei un classificatore semantico di risposte. Analizza la risposta dell'assistente e il messaggio dell'utente per determinare il TIPO di risposta.
+
+Rispondi SOLO con un JSON valido: {"type": "..."}
+
+TIPI POSSIBILI:
+- "informative": risposta con dati, orari, contatti, fatti concreti, spiegazioni tecniche
+- "empathetic": risposta che esprime comprensione, supporto emotivo, rassicurazione
+- "creative": risposta che propone idee, suggerimenti originali, soluzioni creative
+- "navigational": risposta che guida verso un luogo, un ufficio, un percorso, una mappa
+- "important": risposta su scadenze urgenti, documenti obbligatori, avvisi critici
+- "neutral": saluti, conferme brevi, risposte generiche`,
+      messages: [
+        { role: "user", content: `Messaggio utente: ${userMessage}\n\nRisposta assistente: ${assistantResponse.slice(0, 500)}` }
+      ],
+      jsonMode: true,
+    });
+
+    const parsed = JSON.parse(response);
+    const validTypes: ResponseType[] = ["informative", "empathetic", "creative", "navigational", "important", "neutral"];
+    if (validTypes.includes(parsed.type)) {
+      return parsed.type;
+    }
+    return "informative";
+  } catch (error) {
+    console.warn("[Gemini] Response type classification failed:", error);
+    return "informative";
+  }
+}

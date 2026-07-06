@@ -223,7 +223,7 @@ export async function getRecentCrawlLogs(limit = 20) {
 
 export async function getConversationStats(startDate?: Date, endDate?: Date) {
   const db = await getDb();
-  if (!db) return { total: 0, green: 0, yellow: 0, red: 0 };
+  if (!db) return { total: 0, green: 0, yellow: 0, red: 0, totalConversations: 0, totalNodes: 0, pendingEscalations: 0, knowledgeEntries: 0, todayMessages: 0, lastCrawl: "Mai" };
   
   try {
     let conditions = [];
@@ -237,15 +237,35 @@ export async function getConversationStats(startDate?: Date, endDate?: Date) {
     const yellow = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "yellow"), whereClause));
     const red = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "red"), whereClause));
     
+    // Extra stats for V.A.U.L.T. dashboard
+    const nodesCount = await db.select({ count: count() }).from(civicNodes);
+    const escalationsCount = await db.select({ count: count() }).from(escalations).where(eq(escalations.status, "pending"));
+    const kbCount = await db.select({ count: count() }).from(knowledgeBase);
+    
+    // Today's messages
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMsgs = await db.select({ count: count() }).from(messages).where(gte(messages.createdAt, today));
+    
+    // Last crawl
+    const lastCrawlResult = await db.select({ createdAt: crawlLogs.createdAt }).from(crawlLogs).orderBy(desc(crawlLogs.createdAt)).limit(1);
+    const lastCrawlDate = lastCrawlResult.length > 0 ? lastCrawlResult[0].createdAt?.toLocaleDateString("it-IT") : "Mai";
+    
     return {
       total: total[0]?.count ?? 0,
       green: green[0]?.count ?? 0,
       yellow: yellow[0]?.count ?? 0,
       red: red[0]?.count ?? 0,
+      totalConversations: total[0]?.count ?? 0,
+      totalNodes: nodesCount[0]?.count ?? 0,
+      pendingEscalations: escalationsCount[0]?.count ?? 0,
+      knowledgeEntries: kbCount[0]?.count ?? 0,
+      todayMessages: todayMsgs[0]?.count ?? 0,
+      lastCrawl: lastCrawlDate ?? "Mai",
     };
   } catch (error) {
     console.warn("[Analytics] getConversationStats failed:", error);
-    return { total: 0, green: 0, yellow: 0, red: 0 };
+    return { total: 0, green: 0, yellow: 0, red: 0, totalConversations: 0, totalNodes: 0, pendingEscalations: 0, knowledgeEntries: 0, todayMessages: 0, lastCrawl: "Mai" };
   }
 }
 
@@ -257,9 +277,9 @@ export async function getDailyConversationCounts(days = 30) {
   const startDateStr = startDate.toISOString().slice(0, 10);
   
   try {
-    // Use a subquery approach to avoid only_full_group_by issues
+    // Use raw SQL string to avoid only_full_group_by issues with parameterized DATE comparison
     const result = await db.execute(
-      sql`SELECT d AS date, c AS count FROM (SELECT DATE(createdAt) AS d, COUNT(*) AS c FROM conversations WHERE createdAt >= ${startDateStr} GROUP BY d) AS sub ORDER BY date`
+      sql.raw(`SELECT DATE(createdAt) AS date, COUNT(*) AS count FROM conversations WHERE createdAt >= '${startDateStr}' GROUP BY DATE(createdAt) ORDER BY DATE(createdAt)`)
     );
     
     // result structure from mysql2 execute

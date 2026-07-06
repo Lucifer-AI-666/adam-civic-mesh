@@ -27,3 +27,6 @@
 - [x] Aggiungere input vocale (speech-to-text) nella chat
 - [x] Aggiungere output vocale (text-to-speech) con Web Speech API
 - [x] Error handling robusto con fallback LLM su Gemini failure
+- [x] Dashboard stile V.A.U.L.T. con nebulosa cosmica animata al centro
+- [x] Nebulosa cambia colore in base alla risposta (tutti i colori dello spettro)
+- [x] Layout dashboard con stats laterali e stile spaziale/sci-fi

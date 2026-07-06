@@ -3,7 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { callGemini, classifyRiskWithGemini } from "./gemini";
+import { callGemini, classifyRiskWithGemini, classifyResponseType } from "./gemini";
 import { notifyOwner } from "./_core/notification";
 import { z } from "zod";
 import * as db from "./db";
@@ -145,6 +145,14 @@ export const appRouter = router({
           await db.updateConversation(conversationId, { riskLevel });
         }
 
+        // Classify response type for nebula color
+        let responseType: string = "neutral";
+        try {
+          responseType = await classifyResponseType(assistantContent, input.message);
+        } catch (e) {
+          // Non-blocking, default to neutral
+        }
+
         // Save assistant message
         await db.addMessage({
           conversationId,
@@ -157,6 +165,7 @@ export const appRouter = router({
           conversationId,
           message: assistantContent,
           riskLevel,
+          responseType,
         };
       }),
 
