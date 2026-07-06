@@ -249,10 +249,12 @@ export default function Home() {
 
           {/* Response text below nebula */}
           {lastResponse && (
-            <div className="absolute bottom-44 left-1/2 -translate-x-1/2 max-w-lg text-center px-6">
-              <p className="text-sm text-white/60 font-mono line-clamp-3 leading-relaxed">
-                {lastResponse.slice(0, 200)}{lastResponse.length > 200 ? "..." : ""}
-              </p>
+            <div className="absolute bottom-44 left-1/2 -translate-x-1/2 max-w-2xl max-h-48 text-center px-6">
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4 backdrop-blur-sm overflow-y-auto max-h-48">
+                <p className="text-sm text-white/70 font-mono leading-relaxed whitespace-pre-wrap text-left">
+                  {lastResponse}
+                </p>
+              </div>
             </div>
           )}
 
