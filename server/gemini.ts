@@ -164,3 +164,61 @@ TIPI POSSIBILI:
     return "informative";
   }
 }
+
+/**
+ * Generate speech audio using Gemini TTS API.
+ * Uses gemini-3.1-flash-tts-preview model for natural Italian voice.
+ * Returns base64-encoded PCM audio (24kHz, 16-bit, mono).
+ */
+export async function generateSpeech(text: string, voiceName: string = "Orus"): Promise<string | null> {
+  const apiKey = ENV.geminiApiKey;
+  if (!apiKey) {
+    console.warn("[Gemini TTS] No API key configured");
+    return null;
+  }
+
+  try {
+    // Prepare the text with Italian style instruction
+    const ttsPrompt = `Leggi in italiano con voce naturale, calma e professionale: "${text}"`;
+
+    const response = await fetch(
+      `${GEMINI_BASE_URL}/models/gemini-3.1-flash-tts-preview:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: ttsPrompt }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: voiceName,
+                },
+              },
+            },
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn("[Gemini TTS] API error:", response.status, errorText.slice(0, 200));
+      return null;
+    }
+
+    const data = await response.json();
+    const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (!audioData) {
+      console.warn("[Gemini TTS] No audio data in response");
+      return null;
+    }
+
+    return audioData; // base64-encoded PCM
+  } catch (error) {
+    console.warn("[Gemini TTS] Failed to generate speech:", error);
+    return null;
+  }
+}

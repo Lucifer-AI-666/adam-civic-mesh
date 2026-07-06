@@ -30,3 +30,8 @@
 - [x] Dashboard stile V.A.U.L.T. con nebulosa cosmica animata al centro
 - [x] Nebulosa cambia colore in base alla risposta (tutti i colori dello spettro)
 - [x] Layout dashboard con stats laterali e stile spaziale/sci-fi
+- [x] Sostituire Web Speech API con TTS nativo di Gemini (voce fluida e naturale)
+- [x] Endpoint backend per generare audio con Gemini TTS
+- [x] Frontend: riprodurre audio Gemini invece di speechSynthesis
+- [x] Test integration per generateSpeech() e chat.speak con verifica audio valido (224KB PCM generato)
+- [x] Feedback UI quando TTS non disponibile (fallback graceful)

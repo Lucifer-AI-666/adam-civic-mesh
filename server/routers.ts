@@ -3,7 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { callGemini, classifyRiskWithGemini, classifyResponseType } from "./gemini";
+import { callGemini, classifyRiskWithGemini, classifyResponseType, generateSpeech } from "./gemini";
 import { notifyOwner } from "./_core/notification";
 import { z } from "zod";
 import * as db from "./db";
@@ -186,6 +186,20 @@ export const appRouter = router({
         const conv = await db.getConversationById(input.conversationId);
         const msgs = await db.getConversationMessages(input.conversationId);
         return { conversation: conv, messages: msgs };
+      }),
+
+    /** Generate speech audio from text using Gemini TTS */
+    speak: publicProcedure
+      .input(z.object({
+        text: z.string().min(1).max(2000),
+        voice: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const audioBase64 = await generateSpeech(input.text, input.voice || "Orus");
+        if (!audioBase64) {
+          return { audio: null, error: "TTS non disponibile al momento" };
+        }
+        return { audio: audioBase64, error: null };
       }),
   }),
 

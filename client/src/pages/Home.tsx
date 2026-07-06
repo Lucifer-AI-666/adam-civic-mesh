@@ -27,6 +27,53 @@ export default function Home() {
     refetchInterval: 30000,
   });
 
+  // Gemini TTS mutation
+  const speakMutation = trpc.chat.speak.useMutation({
+    onSuccess: (data) => {
+      if (data.audio) {
+        playGeminiAudio(data.audio);
+      } else {
+        console.warn("[Gemini TTS] Audio non disponibile");
+      }
+    },
+    onError: (err) => {
+      console.warn("[Gemini TTS] Errore:", err.message);
+    },
+  });
+
+  // Audio playback refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const playGeminiAudio = (base64Audio: string) => {
+    try {
+      if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+      const int16Array = new Int16Array(bytes.buffer);
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768.0;
+
+      const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
+      audioBuffer.getChannelData(0).set(float32Array);
+
+      if (currentSourceRef.current) try { currentSourceRef.current.stop(); } catch {}
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      currentSourceRef.current = source;
+      source.start();
+    } catch (e) {
+      console.warn("[Gemini TTS] Playback error:", e);
+    }
+  };
+
   // Chat mutation
   const sendMutation = trpc.chat.send.useMutation({
     onMutate: () => {
@@ -61,6 +108,11 @@ export default function Home() {
         nebulaColor = "green";
       }
       setNebulaState(nebulaColor);
+      // Auto-speak with Gemini TTS
+      if (data.message) {
+        const cleanText = data.message.replace(/\*\*(.*?)\*\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/\[.*?\]\(.*?\)/g, "").slice(0, 2000);
+        speakMutation.mutate({ text: cleanText });
+      }
       // Reset to idle after 10 seconds
       setTimeout(() => setNebulaState("idle"), 10000);
     },

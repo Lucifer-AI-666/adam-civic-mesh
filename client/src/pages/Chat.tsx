@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useParams } from "wouter";
 import { Mic, MicOff, Volume2, VolumeX, Send, Loader2, Bot, User } from "lucide-react";
+import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
 function RiskBadge({ level }: { level?: string | null }) {
@@ -40,6 +41,23 @@ export default function Chat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const speakMutation = trpc.chat.speak.useMutation({
+    onSuccess: (data) => {
+      if (data.audio) {
+        playGeminiAudio(data.audio);
+      } else {
+        setIsSpeaking(false);
+        toast.info("Voce Gemini non disponibile al momento", { duration: 3000 });
+      }
+    },
+    onError: () => {
+      setIsSpeaking(false);
+      toast.error("Errore nella generazione vocale", { duration: 3000 });
+    },
+  });
 
   const sendMutation = trpc.chat.send.useMutation({
     onSuccess: (data) => {
@@ -49,7 +67,7 @@ export default function Chat() {
         ...prev,
         { role: "assistant", content: data.message, riskLevel: data.riskLevel },
       ]);
-      // Auto-speak response if TTS enabled
+      // Auto-speak response with Gemini TTS
       if (ttsEnabled && data.message) {
         speakText(data.message);
       }
@@ -77,7 +95,100 @@ export default function Chat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ============ SPEECH-TO-TEXT (Web Speech API) ============
+  // Cleanup audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
+
+  // ============ GEMINI TTS PLAYBACK ============
+  const playGeminiAudio = useCallback(async (base64Audio: string) => {
+    try {
+      setIsSpeaking(true);
+
+      // Initialize AudioContext if needed
+      if (!audioContextRef.current || audioContextRef.current.state === "closed") {
+        audioContextRef.current = new AudioContext({ sampleRate: 24000 });
+      }
+      const ctx = audioContextRef.current;
+
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+
+      // Decode base64 to raw PCM bytes (16-bit signed, 24kHz, mono)
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Convert 16-bit PCM to Float32 for Web Audio API
+      const int16Array = new Int16Array(bytes.buffer);
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+      }
+
+      // Create audio buffer
+      const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
+      audioBuffer.getChannelData(0).set(float32Array);
+
+      // Stop any currently playing audio
+      if (currentSourceRef.current) {
+        try { currentSourceRef.current.stop(); } catch {}
+      }
+
+      // Play the buffer
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => {
+        setIsSpeaking(false);
+        currentSourceRef.current = null;
+      };
+      currentSourceRef.current = source;
+      source.start();
+    } catch (error) {
+      console.warn("[Gemini TTS] Playback error:", error);
+      setIsSpeaking(false);
+    }
+  }, []);
+
+  // ============ SPEAK TEXT WITH GEMINI TTS ============
+  const speakText = useCallback((text: string) => {
+    // Strip markdown for cleaner speech
+    const cleanText = text
+      .replace(/\*\*(.*?)\*\*/g, "$1")
+      .replace(/\*(.*?)\*/g, "$1")
+      .replace(/#{1,6}\s/g, "")
+      .replace(/---/g, "")
+      .replace(/⚠️/g, "attenzione")
+      .replace(/🔴/g, "")
+      .replace(/\[.*?\]\(.*?\)/g, "")
+      .replace(/`(.*?)`/g, "$1")
+      .trim();
+
+    if (!cleanText) return;
+
+    // Truncate to 2000 chars for API limit
+    const truncated = cleanText.slice(0, 2000);
+    setIsSpeaking(true);
+    speakMutation.mutate({ text: truncated });
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (currentSourceRef.current) {
+      try { currentSourceRef.current.stop(); } catch {}
+      currentSourceRef.current = null;
+    }
+    setIsSpeaking(false);
+  }, []);
+
+  // ============ SPEECH-TO-TEXT (Web Speech API for input) ============
   const startListening = useCallback(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -119,47 +230,6 @@ export default function Chat() {
       recognitionRef.current.stop();
       setIsListening(false);
     }
-  }, []);
-
-  // ============ TEXT-TO-SPEECH (Web Speech API) ============
-  const speakText = useCallback((text: string) => {
-    // Strip markdown formatting for cleaner speech
-    const cleanText = text
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/\*(.*?)\*/g, "$1")
-      .replace(/#{1,6}\s/g, "")
-      .replace(/---/g, "")
-      .replace(/⚠️/g, "attenzione")
-      .replace(/🔴/g, "")
-      .replace(/\[.*?\]\(.*?\)/g, "")
-      .replace(/`(.*?)`/g, "$1")
-      .trim();
-
-    if (!cleanText) return;
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = "it-IT";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    // Try to find an Italian voice
-    const voices = window.speechSynthesis.getVoices();
-    const italianVoice = voices.find(v => v.lang.startsWith("it"));
-    if (italianVoice) {
-      utterance.voice = italianVoice;
-    }
-
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
-    window.speechSynthesis.speak(utterance);
-  }, []);
-
-  const stopSpeaking = useCallback(() => {
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
   }, []);
 
   // ============ SEND MESSAGE ============
@@ -208,7 +278,7 @@ export default function Chat() {
                 "transition-colors",
                 ttsEnabled ? "text-primary" : "text-muted-foreground"
               )}
-              title={ttsEnabled ? "Disattiva voce" : "Attiva voce"}
+              title={ttsEnabled ? "Disattiva voce Gemini" : "Attiva voce Gemini"}
             >
               {ttsEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
             </Button>
@@ -226,6 +296,9 @@ export default function Chat() {
                 <p className="text-lg font-medium text-foreground">Ciao! Sono ADAM</p>
                 <p className="text-sm text-muted-foreground mt-1">
                   L'assistente civico di Acqui Terme. Chiedimi qualsiasi cosa!
+                </p>
+                <p className="text-xs text-primary/70 mt-2 flex items-center justify-center gap-1">
+                  <Volume2 className="h-3 w-3" /> Voce naturale Gemini attiva
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md">
@@ -285,7 +358,7 @@ export default function Chat() {
                       <button
                         onClick={() => speakText(msg.content)}
                         className="text-muted-foreground hover:text-primary transition-colors"
-                        title="Riascolta"
+                        title="Riascolta con voce Gemini"
                       >
                         <Volume2 className="h-3.5 w-3.5" />
                       </button>
@@ -338,7 +411,7 @@ export default function Chat() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isListening ? "🎙️ Sto ascoltando..." : "Scrivi o parla con ADAM..."}
+              placeholder={isListening ? "Sto ascoltando..." : "Scrivi o parla con ADAM..."}
               rows={1}
               className="w-full resize-none rounded-xl border border-border bg-card px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
               style={{ minHeight: "44px", maxHeight: "120px" }}
@@ -372,7 +445,7 @@ export default function Chat() {
             {isSpeaking && (
               <span className="flex items-center gap-1">
                 <Volume2 className="h-3 w-3 text-primary animate-pulse" />
-                ADAM sta parlando...
+                ADAM sta parlando (Gemini Voice)...
                 <button onClick={stopSpeaking} className="underline hover:text-primary">
                   Ferma
                 </button>
