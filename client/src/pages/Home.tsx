@@ -8,7 +8,7 @@ import { Link } from "wouter";
 import {
   MessageSquare, Map, Shield, BarChart3, Clock, Zap,
   Send, Mic, MicOff, Volume2, ArrowRight, Activity,
-  Users, FileText, Globe
+  Users, FileText, Globe, X, Menu, ChevronDown
 } from "lucide-react";
 
 export default function Home() {
@@ -24,6 +24,17 @@ export default function Home() {
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioSpeed, setAudioSpeed] = useState(1);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [showResponseModal, setShowResponseModal] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Stats query
   const { data: stats } = trpc.analytics.stats.useQuery(undefined, {
@@ -90,6 +101,7 @@ export default function Home() {
     onSuccess: (data) => {
       setConversationId(data.conversationId);
       setLastResponse(data.message);
+      setShowResponseModal(true);
       setNebulaState("idle");
       if (data.responseType) {
         const colorMap: Record<string, NebulaState> = {
@@ -171,6 +183,17 @@ export default function Home() {
   const timeStr = currentTime.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = currentTime.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
 
+  if (isMobile) {
+    return <HomeMobile {...{
+      user, isAuthenticated, stats, nebulaState, inputText, setInputText,
+      lastResponse, setLastResponse, isListening, startListening, stopListening,
+      handleSend, handleKeyDown, handleInstantLogin, timeStr, dateStr,
+      sendMutation, speakMutation, isGeneratingAudio, isPlayingAudio,
+      audioSpeed, setAudioSpeed, audioCache, playGeminiAudio,
+      mobileMenuOpen, setMobileMenuOpen, showResponseModal, setShowResponseModal
+    }} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#030310] text-white overflow-hidden relative">
       {/* Background grid effect */}
@@ -188,7 +211,6 @@ export default function Home() {
           </span>
         </div>
         <div className="flex items-center gap-4">
-          {/* Status indicators */}
           <div className="flex items-center gap-2 text-[10px] font-mono text-white/40">
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -199,7 +221,6 @@ export default function Home() {
             <span>·</span>
             <span>ALIVE</span>
           </div>
-          {/* Clock */}
           <div className="text-right font-mono">
             <div className="text-xl text-white/90 tracking-wider">{timeStr}</div>
             <div className="text-[9px] text-white/30 tracking-widest">{dateStr}</div>
@@ -242,15 +263,43 @@ export default function Home() {
         <main className="flex-1 flex flex-col items-center justify-center relative">
           <CosmicNebula state={nebulaState} size={420} />
 
-          {/* Response text below nebula */}
+          {/* Response preview - click to expand */}
           {lastResponse && (
-            <div className="absolute bottom-44 left-1/2 -translate-x-1/2 max-w-2xl max-h-48 text-center px-6">
-              <div className="bg-white/5 border border-white/10 rounded-lg p-4 backdrop-blur-sm overflow-y-auto max-h-48">
-                <p className="text-sm text-white/70 font-mono leading-relaxed whitespace-pre-wrap text-left">
+            <div className="absolute bottom-44 left-1/2 -translate-x-1/2 max-w-2xl px-6 w-full">
+              <button
+                onClick={() => setShowResponseModal(true)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg p-4 backdrop-blur-sm hover:bg-white/10 hover:border-primary/30 transition-all text-left group"
+              >
+                <p className="text-sm text-white/70 font-mono leading-relaxed line-clamp-3">
                   {lastResponse}
                 </p>
-                {/* Audio controls */}
-                <div className="flex items-center justify-center gap-3 mt-3 pt-3 border-t border-white/5 flex-wrap">
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[9px] text-white/30">Clicca per leggere tutto</span>
+                  <ChevronDown className="h-3 w-3 text-white/30 group-hover:text-primary/60" />
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Response Modal */}
+          {showResponseModal && lastResponse && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+              <div className="bg-white/5 border border-white/10 rounded-lg max-w-2xl w-full max-h-[80vh] flex flex-col">
+                <div className="flex items-center justify-between p-4 border-b border-white/5">
+                  <h3 className="text-sm font-mono text-white/70">Risposta Completa</h3>
+                  <button
+                    onClick={() => setShowResponseModal(false)}
+                    className="p-1 hover:bg-white/10 rounded transition-all"
+                  >
+                    <X className="h-4 w-4 text-white/50" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                  <p className="text-sm text-white/70 font-mono leading-relaxed whitespace-pre-wrap">
+                    {lastResponse}
+                  </p>
+                </div>
+                <div className="border-t border-white/5 p-4 flex items-center justify-center gap-3 flex-wrap">
                   <button
                     onClick={() => {
                       const cacheKey = lastResponse.slice(0, 50);
@@ -436,6 +485,156 @@ export default function Home() {
   );
 }
 
+// Mobile version
+function HomeMobile({ user, isAuthenticated, stats, nebulaState, inputText, setInputText, lastResponse, setLastResponse, isListening, startListening, stopListening, handleSend, handleKeyDown, handleInstantLogin, timeStr, dateStr, sendMutation, speakMutation, isGeneratingAudio, setIsGeneratingAudio, isPlayingAudio, setIsPlayingAudio, audioSpeed, setAudioSpeed, audioCache, playGeminiAudio, mobileMenuOpen, setMobileMenuOpen, showResponseModal, setShowResponseModal }: any) {
+  return (
+    <div className="min-h-screen bg-[#030310] text-white flex flex-col overflow-hidden">
+      {/* Top bar */}
+      <header className="border-b border-white/5 p-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-bold text-primary font-mono">A.D.A.M.</h1>
+        </div>
+        <div className="text-right font-mono text-[10px]">
+          <div className="text-white/90">{timeStr}</div>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="flex-1 flex flex-col items-center justify-center relative px-4 pb-24">
+        <CosmicNebula state={nebulaState} size={240} />
+
+        {/* Response preview */}
+        {lastResponse && (
+          <button
+            onClick={() => setShowResponseModal(true)}
+            className="mt-6 w-full bg-white/5 border border-white/10 rounded-lg p-3 backdrop-blur-sm hover:bg-white/10 transition-all text-left"
+          >
+            <p className="text-xs text-white/70 font-mono line-clamp-3">
+              {lastResponse}
+            </p>
+            <span className="text-[8px] text-white/30 mt-1 block">Clicca per leggere tutto</span>
+          </button>
+        )}
+
+        {/* Response Modal */}
+        {showResponseModal && lastResponse && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm">
+            <div className="bg-white/5 border border-white/10 rounded-t-lg w-full max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between p-3 border-b border-white/5">
+                <h3 className="text-xs font-mono text-white/70">Risposta Completa</h3>
+                <button
+                  onClick={() => setShowResponseModal(false)}
+                  className="p-1 hover:bg-white/10 rounded"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3">
+                <p className="text-xs text-white/70 font-mono leading-relaxed whitespace-pre-wrap">
+                  {lastResponse}
+                </p>
+              </div>
+              <div className="border-t border-white/5 p-3 flex gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    const cacheKey = lastResponse.slice(0, 50);
+                    if (audioCache[cacheKey]) {
+                      setIsPlayingAudio(true);
+                      playGeminiAudio(audioCache[cacheKey]);
+                      setTimeout(() => setIsPlayingAudio(false), 3000);
+                    } else {
+                      setIsGeneratingAudio(true);
+                      speakMutation.mutate({ text: lastResponse });
+                    }
+                  }}
+                  disabled={isGeneratingAudio || speakMutation.isPending}
+                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[9px] font-mono text-white/50 border border-white/10 rounded-full hover:border-primary/50 hover:text-primary transition-all disabled:opacity-30"
+                >
+                  <Volume2 className="h-3 w-3" />
+                  Riascolta
+                </button>
+                <div className="flex items-center gap-1 px-2 py-1.5 text-[9px] font-mono text-white/30 border border-white/10 rounded-full">
+                  {[1, 1.5, 2].map((speed) => (
+                    <button
+                      key={speed}
+                      onClick={() => setAudioSpeed(speed)}
+                      className={`px-1 py-0.5 rounded text-[8px] ${
+                        audioSpeed === speed ? "bg-primary/20 text-primary" : "text-white/40"
+                      }`}
+                    >
+                      {speed}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Suggested questions */}
+        {!lastResponse && (
+          <div className="mt-6 w-full flex flex-col gap-2">
+            {[
+              "Cos'è La Bollente?",
+              "Dove mangio stasera?",
+              "Parlami in dialetto acquese",
+              "Cosa visitare ad Acqui?",
+            ].map((q) => (
+              <button
+                key={q}
+                onClick={() => {
+                  if (!isAuthenticated) { window.location.href = getLoginUrl(); return; }
+                  setInputText(q); setTimeout(() => { sendMutation.mutate({ conversationId: undefined, message: q }); }, 100);
+                }}
+                className="px-3 py-2 text-[10px] font-mono text-white/50 border border-white/10 rounded-lg hover:border-primary/50 hover:text-primary transition-all"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Bottom input */}
+      <div className="fixed bottom-0 left-0 right-0 border-t border-white/5 bg-[#030310] p-3">
+        {isAuthenticated ? (
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-2">
+            <button
+              onClick={isListening ? stopListening : startListening}
+              className={`p-1.5 rounded-full transition-all ${isListening ? "bg-red-500/20 text-red-400" : "text-white/40"}`}
+            >
+              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Parla con ADAM..."
+              className="flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/20 focus:outline-none font-mono"
+            />
+            <button
+              onClick={handleSend}
+              disabled={!inputText.trim() || sendMutation.isPending}
+              className="p-1.5 text-primary hover:bg-primary/10 transition-all disabled:opacity-30"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={handleInstantLogin}
+            className="w-full flex items-center justify-center gap-2 bg-primary/10 border border-primary/30 rounded-full px-4 py-2 text-primary text-sm font-mono"
+          >
+            <Zap className="h-4 w-4" />
+            Entra
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ icon, label, value, trend }: any) {
   return (
     <div className="bg-white/[0.02] border border-white/5 rounded-lg p-3">
@@ -453,11 +652,9 @@ function StatCard({ icon, label, value, trend }: any) {
 
 function NavBtn({ href, icon, label }: any) {
   return (
-    <Link href={href}>
-      <a className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-mono text-white/40 border border-white/5 rounded-lg hover:border-primary/30 hover:text-primary/60 transition-all">
-        {icon}
-        <span>{label}</span>
-      </a>
+    <Link href={href} className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-mono text-white/40 border border-white/5 rounded-lg hover:border-primary/30 hover:text-primary/60 transition-all">
+      {icon}
+      <span>{label}</span>
     </Link>
   );
 }
