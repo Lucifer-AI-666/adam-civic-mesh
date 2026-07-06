@@ -3,6 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
+import { callGemini, classifyRiskWithGemini } from "./gemini";
 import { notifyOwner } from "./_core/notification";
 import { z } from "zod";
 import * as db from "./db";
@@ -28,43 +29,9 @@ CLASSIFICAZIONE DELLE RICHIESTE:
 CONTESTO TERRITORIALE:
 Acqui Terme è un comune della provincia di Alessandria in Piemonte, noto per le terme, il patrimonio storico e la produzione vinicola. I principali servizi comunali includono anagrafe, tributi, urbanistica, servizi sociali, cultura e turismo.`;
 
-// ============ RISK CLASSIFIER ============
+// ============ RISK CLASSIFIER (Gemini) ============
 async function classifyRisk(userMessage: string, conversationContext: string): Promise<"green" | "yellow" | "red"> {
-  try {
-    const response = await invokeLLM({
-      messages: [
-        {
-          role: "system",
-          content: `Sei un classificatore di rischio per richieste civiche. Analizza il messaggio dell'utente e classifica il livello di rischio.
-
-Rispondi SOLO con un JSON valido: {"level": "green"} oppure {"level": "yellow"} oppure {"level": "red"}
-
-CRITERI:
-- GREEN: informazioni pubbliche, orari, contatti, eventi, indicazioni stradali, informazioni turistiche generali
-- YELLOW: procedure burocratiche specifiche, documenti da presentare, scadenze, informazioni che richiedono verifica
-- RED: questioni legali, reclami formali, emergenze, richieste di dati personali, situazioni che richiedono intervento umano, problemi con multe/sanzioni, questioni sanitarie urgenti`
-        },
-        { role: "user", content: `Contesto conversazione: ${conversationContext}\n\nMessaggio da classificare: ${userMessage}` }
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "risk_classification",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: { level: { type: "string", enum: ["green", "yellow", "red"] } },
-            required: ["level"],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
-    const parsed = JSON.parse(response.choices[0].message.content as string);
-    return parsed.level;
-  } catch {
-    return "green";
-  }
+  return classifyRiskWithGemini(userMessage, conversationContext);
 }
 
 // ============ ROUTERS ============
@@ -150,9 +117,26 @@ export const appRouter = router({
             content: `Nuova escalation da conversazione #${conversationId}.\nMessaggio: ${input.message.slice(0, 300)}`,
           });
         } else {
-          // Generate AI response
-          const response = await invokeLLM({ messages: llmMessages });
-          assistantContent = response.choices[0].message.content as string;
+          // Generate AI response with Gemini (with fallback)
+          try {
+            assistantContent = await callGemini({
+              systemPrompt: ADAM_SYSTEM_PROMPT + knowledgeContext,
+              messages: history.slice(-10).filter(m => m.role !== "system").map(m => ({
+                role: m.role as "user" | "assistant",
+                content: m.content,
+              })),
+            });
+          } catch (geminiError) {
+            console.error("[ADAM] Gemini call failed, using fallback:", geminiError);
+            // Fallback to built-in LLM
+            try {
+              const fallbackResponse = await invokeLLM({ messages: llmMessages });
+              assistantContent = fallbackResponse.choices[0].message.content as string;
+            } catch (fallbackError) {
+              console.error("[ADAM] Fallback LLM also failed:", fallbackError);
+              assistantContent = "Mi scuso, al momento ho difficoltà a elaborare la tua richiesta. Riprova tra qualche istante oppure contatta direttamente il Comune di Acqui Terme al numero 0144 770111.";
+            }
+          }
 
           if (riskLevel === "yellow") {
             assistantContent += `\n\n---\n⚠️ *Nota: questa informazione potrebbe richiedere verifica. Ti consigliamo di contattare direttamente l'ufficio competente per conferma.*`;

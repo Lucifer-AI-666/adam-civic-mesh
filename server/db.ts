@@ -225,23 +225,28 @@ export async function getConversationStats(startDate?: Date, endDate?: Date) {
   const db = await getDb();
   if (!db) return { total: 0, green: 0, yellow: 0, red: 0 };
   
-  let conditions = [];
-  if (startDate) conditions.push(gte(conversations.createdAt, startDate));
-  if (endDate) conditions.push(lte(conversations.createdAt, endDate));
-  
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  
-  const total = await db.select({ count: count() }).from(conversations).where(whereClause);
-  const green = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "green"), whereClause));
-  const yellow = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "yellow"), whereClause));
-  const red = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "red"), whereClause));
-  
-  return {
-    total: total[0]?.count ?? 0,
-    green: green[0]?.count ?? 0,
-    yellow: yellow[0]?.count ?? 0,
-    red: red[0]?.count ?? 0,
-  };
+  try {
+    let conditions = [];
+    if (startDate) conditions.push(gte(conversations.createdAt, startDate));
+    if (endDate) conditions.push(lte(conversations.createdAt, endDate));
+    
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    
+    const total = await db.select({ count: count() }).from(conversations).where(whereClause);
+    const green = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "green"), whereClause));
+    const yellow = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "yellow"), whereClause));
+    const red = await db.select({ count: count() }).from(conversations).where(and(eq(conversations.riskLevel, "red"), whereClause));
+    
+    return {
+      total: total[0]?.count ?? 0,
+      green: green[0]?.count ?? 0,
+      yellow: yellow[0]?.count ?? 0,
+      red: red[0]?.count ?? 0,
+    };
+  } catch (error) {
+    console.warn("[Analytics] getConversationStats failed:", error);
+    return { total: 0, green: 0, yellow: 0, red: 0 };
+  }
 }
 
 export async function getDailyConversationCounts(days = 30) {
@@ -249,14 +254,25 @@ export async function getDailyConversationCounts(days = 30) {
   if (!db) return [];
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
+  const startDateStr = startDate.toISOString().slice(0, 10);
   
-  const result = await db.select({
-    date: sql<string>`DATE(${conversations.createdAt})`,
-    count: count(),
-  }).from(conversations)
-    .where(gte(conversations.createdAt, startDate))
-    .groupBy(sql`DATE(${conversations.createdAt})`)
-    .orderBy(sql`DATE(${conversations.createdAt})`);
-  
-  return result;
+  try {
+    // Use a subquery approach to avoid only_full_group_by issues
+    const result = await db.execute(
+      sql`SELECT d AS date, c AS count FROM (SELECT DATE(createdAt) AS d, COUNT(*) AS c FROM conversations WHERE createdAt >= ${startDateStr} GROUP BY d) AS sub ORDER BY date`
+    );
+    
+    // result structure from mysql2 execute
+    const rows = Array.isArray(result) ? (Array.isArray(result[0]) ? result[0] : result) : [];
+    if (Array.isArray(rows) && rows.length > 0 && typeof rows[0] === 'object') {
+      return (rows as any[]).map((row: any) => ({
+        date: row.date ? String(row.date) : '',
+        count: Number(row.count || 0),
+      })).filter(r => r.date);
+    }
+    return [];
+  } catch (error) {
+    console.warn("[Analytics] getDailyConversationCounts failed:", error);
+    return [];
+  }
 }

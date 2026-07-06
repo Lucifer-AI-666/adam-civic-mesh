@@ -22,3 +22,8 @@
 - [x] Export conversazioni in formato Markdown
 - [x] Job schedulato crawl registrato (adam-crawl-acqui-terme, ogni giorno alle 06:00 UTC)
 - [x] Login ultra-rapido: un click per entrare, zero form, zero attesa
+- [x] Fix bug dashboard analytics (GROUP BY sql_mode=only_full_group_by)
+- [x] Integrare Gemini API come motore AI della chat
+- [x] Aggiungere input vocale (speech-to-text) nella chat
+- [x] Aggiungere output vocale (text-to-speech) con Web Speech API
+- [x] Error handling robusto con fallback LLM su Gemini failure
