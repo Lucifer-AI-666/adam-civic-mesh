@@ -20,6 +20,10 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<number | undefined>();
   const recognitionRef = useRef<any>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [audioCache, setAudioCache] = useState<Record<string, string>>({});
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [audioSpeed, setAudioSpeed] = useState(1);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // Stats query
   const { data: stats } = trpc.analytics.stats.useQuery(undefined, {
@@ -31,13 +35,20 @@ export default function Home() {
   const speakMutation = trpc.chat.speak.useMutation({
     onSuccess: (data) => {
       if (data.audio) {
+        const cacheKey = lastResponse.slice(0, 50);
+        setAudioCache((prev) => ({ ...prev, [cacheKey]: data.audio }));
+        setIsGeneratingAudio(false);
+        setIsPlayingAudio(true);
         playGeminiAudio(data.audio);
+        setTimeout(() => setIsPlayingAudio(false), 3000);
       } else {
         console.warn("[Gemini TTS] Audio non disponibile");
+        setIsGeneratingAudio(false);
       }
     },
     onError: (err) => {
       console.warn("[Gemini TTS] Errore:", err.message);
+      setIsGeneratingAudio(false);
     },
   });
 
@@ -58,71 +69,62 @@ export default function Home() {
       for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
       const int16Array = new Int16Array(bytes.buffer);
       const float32Array = new Float32Array(int16Array.length);
-      for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768.0;
+      for (let i = 0; i < int16Array.length; i++) float32Array[i] = int16Array[i] / 32768;
 
-      const audioBuffer = ctx.createBuffer(1, float32Array.length, 24000);
-      audioBuffer.getChannelData(0).set(float32Array);
-
-      if (currentSourceRef.current) try { currentSourceRef.current.stop(); } catch {}
+      if (currentSourceRef.current) currentSourceRef.current.stop();
+      const buffer = ctx.createBuffer(1, float32Array.length, 24000);
+      buffer.getChannelData(0).set(float32Array);
       const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
+      source.buffer = buffer;
+      source.playbackRate.value = audioSpeed;
       source.connect(ctx.destination);
+      source.start(0);
       currentSourceRef.current = source;
-      source.start();
-    } catch (e) {
-      console.warn("[Gemini TTS] Playback error:", e);
+    } catch (err) {
+      console.error("[Audio] Errore playback:", err);
     }
   };
 
-  // Chat mutation
+  // Chat send mutation
   const sendMutation = trpc.chat.send.useMutation({
-    onMutate: () => {
-      setNebulaState("thinking");
-    },
     onSuccess: (data) => {
       setConversationId(data.conversationId);
       setLastResponse(data.message);
-      // Map response type + risk level to nebula color
-      const responseTypeToColor: Record<string, NebulaState> = {
-        informative: "blue",
-        empathetic: "pink",
-        creative: "indigo",
-        navigational: "teal",
-        important: "gold",
-        neutral: "white",
-      };
-      const riskToColor: Record<string, NebulaState> = {
-        green: "green",
-        yellow: "yellow",
-        red: "red",
-      };
-      // Priority: red/yellow risk overrides response type
-      let nebulaColor: NebulaState;
-      if (data.riskLevel === "red") {
-        nebulaColor = "red";
-      } else if (data.riskLevel === "yellow") {
-        nebulaColor = "yellow";
-      } else if (data.responseType && responseTypeToColor[data.responseType]) {
-        nebulaColor = responseTypeToColor[data.responseType];
-      } else {
-        nebulaColor = "green";
+      setNebulaState("idle");
+      if (data.responseType) {
+        const colorMap: Record<string, NebulaState> = {
+          "in-ascolto": "idle",
+          "elaborazione": "purple",
+          "informativo": "blue",
+          "risposta-sicura": "green",
+          "verifica-necessaria": "yellow",
+          "attenzione": "orange",
+          "escalation": "red",
+          "empatico": "pink",
+          "creativo": "indigo",
+          "importante": "gold",
+        };
+        setNebulaState(colorMap[data.responseType] || "idle");
+        setTimeout(() => setNebulaState("idle"), 10000);
       }
-      setNebulaState(nebulaColor);
-      // Auto-speak with Gemini TTS
-      if (data.message) {
-        const cleanText = data.message.replace(/\*\*(.*?)\*\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/\[.*?\]\(.*?\)/g, "").slice(0, 2000);
-        speakMutation.mutate({ text: cleanText });
-      }
-      // Reset to idle after 10 seconds
-      setTimeout(() => setNebulaState("idle"), 10000);
+      setTimeout(() => {
+        const cacheKey = data.message.slice(0, 100);
+        if (audioCache[cacheKey]) {
+          setIsPlayingAudio(true);
+          playGeminiAudio(audioCache[cacheKey]);
+          setTimeout(() => setIsPlayingAudio(false), 3000);
+        } else {
+          setIsGeneratingAudio(true);
+          speakMutation.mutate({ text: data.message });
+        }
+      }, 500);
     },
-    onError: () => {
-      setNebulaState("orange");
-      setTimeout(() => setNebulaState("idle"), 4000);
+    onError: (err) => {
+      console.error("[Chat] Errore:", err.message);
+      setNebulaState("idle");
     },
   });
 
-  // Clock
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -219,25 +221,18 @@ export default function Home() {
               <StatCard icon={<Shield className="h-3 w-3" />} label="Escalation" value={stats.pendingEscalations?.toString() || "0"} trend={(stats.pendingEscalations ?? 0) > 0 ? "alert" : "ok"} />
               <StatCard icon={<FileText className="h-3 w-3" />} label="Knowledge Base" value={stats.knowledgeEntries?.toString() || "0"} />
               <StatCard icon={<Activity className="h-3 w-3" />} label="Messaggi Oggi" value={stats.todayMessages?.toString() || "0"} />
-              <StatCard icon={<Globe className="h-3 w-3" />} label="Ultimo Crawl" value={stats.lastCrawl || "Mai"} />
             </>
           ) : (
-            <>
-              <StatCard icon={<Activity className="h-3 w-3" />} label="Stato" value="ATTIVO" trend="ok" />
-              <StatCard icon={<Globe className="h-3 w-3" />} label="Copertura" value="Acqui Terme" />
-              <StatCard icon={<Users className="h-3 w-3" />} label="Servizi" value="2300+" />
-            </>
+            <div className="text-[10px] text-white/30 font-mono">Accedi per vedere le statistiche</div>
           )}
 
-          {/* Quick nav */}
-          <div className="mt-auto pt-4 border-t border-white/5">
+          <div className="mt-4 border-t border-white/5 pt-4">
             <div className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-2">
               Navigazione
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="space-y-1.5">
               <NavBtn href="/chat" icon={<MessageSquare className="h-3 w-3" />} label="Chat" />
               <NavBtn href="/map" icon={<Map className="h-3 w-3" />} label="Mappa" />
-              <NavBtn href="/history" icon={<Clock className="h-3 w-3" />} label="Storico" />
               <NavBtn href="/dashboard" icon={<BarChart3 className="h-3 w-3" />} label="Analytics" />
             </div>
           </div>
@@ -254,6 +249,57 @@ export default function Home() {
                 <p className="text-sm text-white/70 font-mono leading-relaxed whitespace-pre-wrap text-left">
                   {lastResponse}
                 </p>
+                {/* Audio controls */}
+                <div className="flex items-center justify-center gap-3 mt-3 pt-3 border-t border-white/5 flex-wrap">
+                  <button
+                    onClick={() => {
+                      const cacheKey = lastResponse.slice(0, 50);
+                      if (audioCache[cacheKey]) {
+                        setIsPlayingAudio(true);
+                        playGeminiAudio(audioCache[cacheKey]);
+                        setTimeout(() => setIsPlayingAudio(false), 3000);
+                      } else {
+                        setIsGeneratingAudio(true);
+                        speakMutation.mutate({ text: lastResponse });
+                      }
+                    }}
+                    disabled={isGeneratingAudio || speakMutation.isPending}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-white/50 border border-white/10 rounded-full hover:border-primary/50 hover:text-primary transition-all disabled:opacity-30"
+                  >
+                    {isGeneratingAudio || speakMutation.isPending ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        Generando...
+                      </>
+                    ) : isPlayingAudio ? (
+                      <>
+                        <Volume2 className="h-3 w-3" />
+                        Riproducendo...
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="h-3 w-3" />
+                        Riascolta
+                      </>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono text-white/30 border border-white/10 rounded-full">
+                    <span>Velocità:</span>
+                    {[1, 1.5, 2].map((speed) => (
+                      <button
+                        key={speed}
+                        onClick={() => setAudioSpeed(speed)}
+                        className={`px-1.5 py-0.5 rounded transition-all ${
+                          audioSpeed === speed
+                            ? "bg-primary/20 text-primary border border-primary/30"
+                            : "text-white/40 hover:text-white/60"
+                        }`}
+                      >
+                        {speed}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -374,13 +420,14 @@ export default function Home() {
 
           {/* User info */}
           {isAuthenticated && user && (
-            <div className="mt-auto pt-4 border-t border-white/5">
-              <div className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-1">
+            <div className="mt-4 border-t border-white/5 pt-4">
+              <div className="text-[9px] font-mono text-white/30 uppercase tracking-widest mb-2">
                 Operatore
               </div>
-              <p className="text-xs font-mono text-primary">{user.name}</p>
-              <p className="text-[10px] font-mono text-white/30">{user.email}</p>
-              <p className="text-[10px] font-mono text-white/20 mt-1">Ruolo: {user.role?.toUpperCase()}</p>
+              <div className="text-[10px] text-white/60 font-mono">
+                <div>{user.name}</div>
+                <div className="text-white/40">{user.email}</div>
+              </div>
             </div>
           )}
         </aside>
@@ -389,48 +436,48 @@ export default function Home() {
   );
 }
 
-// Sub-components
-function StatCard({ icon, label, value, trend }: { icon: React.ReactNode; label: string; value: string; trend?: "ok" | "alert" }) {
+function StatCard({ icon, label, value, trend }: any) {
   return (
     <div className="bg-white/[0.02] border border-white/5 rounded-lg p-3">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-white/30">{icon}</span>
-        <span className="text-[9px] font-mono text-white/40 uppercase tracking-wider">{label}</span>
-        {trend === "alert" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
-        {trend === "ok" && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-green-400" />}
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2 text-white/40">
+          {icon}
+          <span className="text-[8px] font-mono uppercase tracking-wider">{label}</span>
+        </div>
+        {trend === "alert" && <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
       </div>
-      <p className="text-lg font-bold font-mono text-white/90">{value}</p>
+      <div className="text-xl font-mono text-white/80 font-bold">{value}</div>
     </div>
   );
 }
 
-function NavBtn({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+function NavBtn({ href, icon, label }: any) {
   return (
     <Link href={href}>
-      <button className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-[10px] font-mono text-white/50 hover:text-primary hover:bg-primary/5 transition-all border border-transparent hover:border-primary/20">
+      <a className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-mono text-white/40 border border-white/5 rounded-lg hover:border-primary/30 hover:text-primary/60 transition-all">
         {icon}
-        {label}
-      </button>
+        <span>{label}</span>
+      </a>
     </Link>
   );
 }
 
-function CmdBtn({ label, onClick }: { label: string; onClick: () => void }) {
+function CmdBtn({ label, onClick }: any) {
   return (
     <button
       onClick={onClick}
-      className="px-2 py-1.5 rounded text-[10px] font-mono text-white/50 hover:text-primary hover:bg-primary/5 transition-all border border-white/5 hover:border-primary/30"
+      className="px-2 py-1.5 text-[9px] font-mono text-white/40 border border-white/5 rounded-lg hover:border-primary/30 hover:text-primary/60 transition-all"
     >
-      › {label}
+      {label}
     </button>
   );
 }
 
-function ColorLegend({ color, label }: { color: string; label: string }) {
+function ColorLegend({ color, label }: any) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
-      <span className="text-[10px] font-mono text-white/40">{label}</span>
+      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+      <span className="text-[9px] text-white/40 font-mono">{label}</span>
     </div>
   );
 }

@@ -53,3 +53,7 @@
 - [x] Popolare la knowledge base con attività commerciali locali verificate (ristorazione, ospitalità, negozi) - 3 voci
 - [x] Espandere la knowledge base dei servizi comunali con schede per ufficio/procedura dettagliate - 7 voci
 - [x] Pulsanti domande suggerite sotto la nebulosa per far scoprire le conoscenze su Acqui Terme
+- [x] Bottone "Riascolta" per riprodurre l'audio della risposta
+- [x] Indicatore di progresso mentre Gemini genera l'audio
+- [x] Controllo velocità audio (1x, 1.5x, 2x)
+- [x] Caching audio per evitare di rigenerare se la risposta è uguale
