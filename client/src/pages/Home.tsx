@@ -249,10 +249,50 @@ export default function Home() {
 
           {/* Response text below nebula */}
           {lastResponse && (
-            <div className="absolute bottom-32 left-1/2 -translate-x-1/2 max-w-lg text-center px-6">
+            <div className="absolute bottom-44 left-1/2 -translate-x-1/2 max-w-lg text-center px-6">
               <p className="text-sm text-white/60 font-mono line-clamp-3 leading-relaxed">
                 {lastResponse.slice(0, 200)}{lastResponse.length > 200 ? "..." : ""}
               </p>
+            </div>
+          )}
+
+          {/* Suggested questions */}
+          {!lastResponse && (
+            <div className="absolute bottom-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-6">
+              <div className="flex flex-wrap justify-center gap-2">
+                {[
+                  "Cos'è La Bollente?",
+                  "Dove mangio stasera?",
+                  "Parlami in dialetto acquese",
+                  "Cosa visitare ad Acqui?",
+                  "Orari ufficio anagrafe",
+                  "Raccontami la storia romana",
+                  "Che vino mi consigli?",
+                  "Eventi di questo mese",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => {
+                      if (!isAuthenticated) { window.location.href = getLoginUrl(); return; }
+                      setInputText(q); setTimeout(() => { sendMutation.mutate({ conversationId, message: q }); }, 100);
+                    }}
+                    disabled={sendMutation.isPending}
+                    className="px-3 py-1.5 text-[11px] font-mono text-white/50 border border-white/10 rounded-full hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all duration-200 disabled:opacity-30"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {lastResponse && isAuthenticated && (
+            <div className="absolute bottom-20 left-1/2 -translate-x-1/2">
+              <button
+                onClick={() => setLastResponse("")}
+                className="px-3 py-1.5 text-[10px] font-mono text-white/30 border border-white/5 rounded-full hover:border-primary/30 hover:text-primary/60 transition-all"
+              >
+                ↺ Altre domande
+              </button>
             </div>
           )}
 
