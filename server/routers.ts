@@ -430,7 +430,7 @@ export const appRouter = router({
       }),
 
     daily: publicProcedure
-      .input(z.object({ days: z.number().default(30) }).optional())
+      .input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional())
       .query(async ({ input }) => {
         return db.getDailyConversationCounts(input?.days ?? 30);
       }),
