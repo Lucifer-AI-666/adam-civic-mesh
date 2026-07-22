@@ -10,7 +10,7 @@ import {
   Send, Mic, MicOff, Volume2, ArrowRight, Activity,
   Users, FileText, Globe, X, Menu, ChevronDown
 } from "lucide-react";
-import { useNotifications } from "@/contexts/NotificationContext";
+import { useNotifications, NOTIFICATION_MESSAGE_MAX_LENGTH } from "@/contexts/NotificationContext";
 
 export default function Home() {
   const { user, isAuthenticated } = useAuth();
@@ -115,7 +115,7 @@ export default function Home() {
         addNotification(
           "new_message",
           "Risposta da ADAM",
-          data.message.slice(0, 120) + (data.message.length > 120 ? "…" : "")
+          data.message.slice(0, NOTIFICATION_MESSAGE_MAX_LENGTH) + (data.message.length > NOTIFICATION_MESSAGE_MAX_LENGTH ? "…" : "")
         );
       }
       if (data.responseType) {

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 
 export type NotificationType = "escalation_red" | "new_message" | "knowledge_update" | "system";
 
@@ -29,6 +29,7 @@ const DEFAULT_PREFS: NotificationPreferences = {
 
 const PREFS_KEY = "adam_notification_prefs";
 const MAX_NOTIFICATIONS = 50;
+export const NOTIFICATION_MESSAGE_MAX_LENGTH = 120;
 
 interface NotificationContextValue {
   notifications: AppNotification[];
@@ -132,13 +133,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return next;
     });
   }, []);
-
-  // Persist preferences on mount load
-  useEffect(() => {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(preferences));
-    } catch {}
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <NotificationContext.Provider

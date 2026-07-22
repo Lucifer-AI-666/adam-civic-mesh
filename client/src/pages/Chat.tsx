@@ -8,7 +8,7 @@ import { useParams } from "wouter";
 import { Mic, MicOff, Volume2, VolumeX, Send, Loader2, Bot, User } from "lucide-react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { useNotifications } from "@/contexts/NotificationContext";
+import { useNotifications, NOTIFICATION_MESSAGE_MAX_LENGTH } from "@/contexts/NotificationContext";
 
 function RiskBadge({ level }: { level?: string | null }) {
   if (!level) return null;
@@ -79,7 +79,7 @@ export default function Chat() {
         addNotification(
           "new_message",
           "Risposta da ADAM",
-          data.message.slice(0, 120) + (data.message.length > 120 ? "…" : "")
+          data.message.slice(0, NOTIFICATION_MESSAGE_MAX_LENGTH) + (data.message.length > NOTIFICATION_MESSAGE_MAX_LENGTH ? "…" : "")
         );
       }
       // Auto-speak response with Gemini TTS
