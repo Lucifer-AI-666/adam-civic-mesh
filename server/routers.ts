@@ -418,7 +418,7 @@ export const appRouter = router({
 
   // ============ ANALYTICS ============
   analytics: router({
-    stats: adminProcedure
+    stats: publicProcedure
       .input(z.object({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
@@ -429,8 +429,8 @@ export const appRouter = router({
         return db.getConversationStats(start, end);
       }),
 
-    daily: adminProcedure
-      .input(z.object({ days: z.number().default(30) }).optional())
+    daily: publicProcedure
+      .input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional())
       .query(async ({ input }) => {
         return db.getDailyConversationCounts(input?.days ?? 30);
       }),
