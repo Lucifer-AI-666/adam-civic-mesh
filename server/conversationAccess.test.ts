@@ -72,6 +72,20 @@ describe("conversationAccess — assertConversationAccess", () => {
   it("does not throw for admin (positive)", () => {
     expect(() => assertConversationAccess(admin, owned)).not.toThrow();
   });
+
+  it("does not throw for operator (positive)", () => {
+    expect(() => assertConversationAccess(operator, owned)).not.toThrow();
+  });
+
+  it("throws FORBIDDEN for normal user on guest thread (negative)", () => {
+    try {
+      assertConversationAccess(owner, guestThread);
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect((e as TRPCError).code).toBe("FORBIDDEN");
+    }
+  });
 });
 
 describe("conversationAccess — isStaffRole", () => {
